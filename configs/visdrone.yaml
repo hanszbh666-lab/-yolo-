@@ -1,0 +1,36 @@
+# VisDrone数据集配置文件
+# YOLO格式数据集配置
+
+# 数据集路径 (相对于项目根目录)
+path: datasets/visdrone  # dataset root dir
+train: images/train      # train images (relative to 'path')
+val: images/val          # val images (relative to 'path')
+test: images/test        # test images (optional)
+
+# 类别数量
+nc: 10
+
+# 类别名称
+names:
+  0: pedestrian          # 行人
+  1: people              # 人
+  2: bicycle             # 自行车
+  3: car                 # 汽车
+  4: van                 # 货车
+  5: truck               # 卡车
+  6: tricycle            # 三轮车
+  7: awning-tricycle     # 遮阳篷三轮车
+  8: bus                 # 公交车
+  9: motor               # 摩托车
+
+# VisDrone数据集信息
+# 数据集来源: http://aiskyeye.com/
+# 特点: 无人机航拍、小目标密集、多尺度目标
+# 训练集: 6471张图像
+# 验证集: 548张图像
+# 测试集: 1610张图像
+
+# 下载说明:
+# 1. 运行下载脚本: python scripts/download_visdrone.py
+# 2. 运行转换脚本: python scripts/convert_visdrone.py
+# 3. 开始训练: python scripts/train.py

@@ -1,0 +1,92 @@
+# YOLOv8s Improved Model Configuration
+# 改进版YOLOv8s配置 - 针对VisDrone小目标检测优化
+# 
+# 🔧 改进方向建议:
+# 1. 添加注意力机制 (CBAM, SE, CA, ECA等)
+# 2. 改进特征融合 (BiFPN, ASFF等)
+# 3. 增加小目标检测层 (P2层)
+# 4. 替换主干网络 (Swin Transformer, ConvNeXt等)
+# 5. 改进检测头 (Decoupled Head, TOOD等)
+#
+# 📝 使用方法:
+#   在此文件中实现你的模型改进
+#   训练时指定: python scripts/train.py --model models/yolov8s_improved.yaml
+
+# Parameters
+nc: 10  # number of classes (VisDrone: 10类)
+scales:
+  # [depth, width, max_channels]
+  s: [0.33, 0.50, 1024]
+
+# 示例: 基础YOLOv8s结构（与yolov8s.yaml相同）
+# 🚀 在此基础上进行你的改进
+
+# Backbone
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]  # 1-P2/4
+  - [-1, 3, C2f, [128, True]]   # 2
+  - [-1, 1, Conv, [256, 3, 2]]  # 3-P3/8
+  - [-1, 6, C2f, [256, True]]   # 4
+  - [-1, 1, Conv, [512, 3, 2]]  # 5-P4/16
+  - [-1, 6, C2f, [512, True]]   # 6
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 3, C2f, [1024, True]]  # 8
+  - [-1, 1, SPPF, [1024, 5]]    # 9
+  
+  # 💡 改进示例1: 在backbone末尾添加注意力机制
+  # - [-1, 1, CBAM, [1024]]  # 添加CBAM注意力
+
+# Head
+head:
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+  - [[-1, 6], 1, Concat, [1]]  # cat backbone P4
+  - [-1, 3, C2f, [512]]         # 12
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+  - [[-1, 4], 1, Concat, [1]]  # cat backbone P3
+  - [-1, 3, C2f, [256]]         # 15 (P3/8-small)
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 12], 1, Concat, [1]]  # cat head P4
+  - [-1, 3, C2f, [512]]         # 18 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [[-1, 9], 1, Concat, [1]]   # cat head P5
+  - [-1, 3, C2f, [1024]]        # 21 (P5/32-large)
+
+  - [[15, 18, 21], 1, Detect, [nc]]  # Detect(P3, P4, P5)
+  
+  # 💡 改进示例2: 添加P2小目标检测层
+  # 在head部分添加额外的上采样和检测层来检测更小的目标
+  # - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+  # - [[-1, 2], 1, Concat, [1]]  # cat backbone P2
+  # - [-1, 3, C2f, [128]]         # P2/4-tiny
+  # - [[15, 18, 21, -1], 1, Detect, [nc]]  # Detect(P2, P3, P4, P5)
+
+# ============================================================
+# 🎯 常用改进模块参考
+# ============================================================
+# 
+# 1. 注意力机制:
+#    - CBAM: 通道+空间注意力
+#    - SE: Squeeze-and-Excitation
+#    - CA: Coordinate Attention
+#    - ECA: Efficient Channel Attention
+#
+# 2. 特征融合:
+#    - BiFPN: 双向特征金字塔
+#    - ASFF: 自适应空间特征融合
+#    - AFPN: Asymptotic Feature Pyramid
+#
+# 3. 检测头改进:
+#    - Decoupled Head: 分类和定位解耦
+#    - TOOD: Task-aligned One-stage Object Detection
+#
+# 4. 小目标优化:
+#    - 添加P2检测层 (stride=4)
+#    - 增加输入分辨率 (1280x1280)
+#    - Mosaic数据增强
+#
+# ============================================================

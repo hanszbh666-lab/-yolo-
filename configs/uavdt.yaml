@@ -1,0 +1,29 @@
+# UAVDT数据集配置文件
+# YOLO格式数据集配置
+
+# 数据集路径 (相对于项目根目录)
+path: datasets/uavdt  # dataset root dir
+train: images/train   # train images (relative to 'path')
+val: images/val       # val images (relative to 'path')  
+test: images/test     # test images (optional)
+
+# 类别数量
+nc: 3
+
+# 类别名称
+names:
+  0: car
+  1: truck
+  2: bus
+
+# UAVDT数据集信息
+# 数据集来源: https://sites.google.com/site/daviddo0323/
+# 论文: The Unmanned Aerial Vehicle Benchmark: Object Detection and Tracking (ECCV 2018)
+# 特点: 无人机航拍视频、多目标跟踪、车辆检测
+# 原始数据: 视频序列格式
+# 转换后: 图像帧 + YOLO标注
+
+# 使用说明:
+# 1. 下载完整UAVDT数据集 (包含图像)
+# 2. 运行转换脚本: python scripts/convert_uavdt.py
+# 3. 开始训练: python scripts/train.py --data configs/uavdt.yaml
