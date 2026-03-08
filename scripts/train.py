@@ -6,6 +6,13 @@ import os
 import sys
 from pathlib import Path
 
+# ── 将项目根目录加入 sys.path（必须在 import ultralytics 之前）──────────────
+# 使得 tasks.py 中的 `from models.modules.xxx import XXX` 能够找到自定义模块
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+# ──────────────────────────────────────────────────────────────────────────────
+
 # 解决OpenMP库冲突问题
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 # 禁用Ultralytics的自动下载功能
@@ -17,11 +24,32 @@ from ultralytics import YOLO
 import yaml
 
 
+def register_custom_modules(verbose=True):
+    """注册 SDA-STD YOLO11 自定义模块。"""
+    try:
+        import ultralytics.nn.tasks as _tasks
+        from models.modules.ema import EMA
+        from models.modules.rfb import RFB
+        from models.modules.sda_fusion import SDA_Fusion
+
+        _tasks.EMA = EMA
+        _tasks.RFB = RFB
+        _tasks.SDA_Fusion = SDA_Fusion
+
+        if verbose:
+            print("[SDA-STD] 自定义模块注册成功: EMA, RFB, SDA_Fusion")
+        return True
+    except Exception as e:
+        if verbose:
+            print(f"[SDA-STD] 警告：自定义模块注册失败，仅在使用标准模型时可忽略。原因: {e}")
+        return False
+
+
 def train_yolov8(
     data_config='configs/visdrone.yaml',
     model='models/yolov8s.yaml',
     epochs=300,
-    batch_size=16,
+    batch_size=8,
     imgsz=640,
     device='0',
     workers=8,
@@ -29,6 +57,9 @@ def train_yolov8(
     name=None,
     resume=False,
     use_pretrained=False,
+    amp=None,
+    val=True,
+    plots=True,
     **kwargs
 ):
     """
@@ -46,6 +77,9 @@ def train_yolov8(
         name: 实验名称
         resume: 是否从上次中断的地方继续训练
         use_pretrained: 是否使用预训练权重（默认False，从头训练）
+        amp: 是否启用自动混合精度，None 表示根据设备自动决定
+        val: 训练时是否进行验证
+        plots: 是否保存训练图表
         **kwargs: 其他训练参数
     """
     # 自动生成实验名称（如果没有提供）
@@ -68,6 +102,9 @@ def train_yolov8(
     print(f"🖼️  图像尺寸: {imgsz}")
     print(f"🔧 设备: {'GPU ' + device if device != 'cpu' else 'CPU'}")
     print(f"👷 工作线程: {workers}")
+    print(f"⚡ 混合精度 AMP: {amp if amp is not None else 'auto'}")
+    print(f"🧪 训练时验证: {val}")
+    print(f"📉 保存图表: {plots}")
     print(f"💾 保存路径: {project}/{name}")
     print("="*80 + "\n")
     
@@ -81,9 +118,20 @@ def train_yolov8(
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             print(f"✅ 检测到GPU: {gpu_name}")
             print(f"💾 显存大小: {gpu_memory:.2f} GB\n")
+
+    # 自动决定混合精度：CUDA 默认启用，CPU 默认关闭
+    if amp is None:
+        amp = device != 'cpu'
+
+    # 针对高分辨率小目标模型给出更保守的显存提示
+    if device != 'cpu' and imgsz >= 640 and batch_size >= 4 and 'MRA-STD' in str(model):
+        print("[SDA-STD] 提示：当前模型包含 P2 高分辨率检测头，若出现显存不足，优先尝试 --batch 2 或开启 --amp")
     
     # 加载模型
     print(f"🔄 加载模型: {model}")
+
+    # 仅在主训练流程中注册自定义模块，避免 Windows 多进程重复导入时反复输出
+    register_custom_modules(verbose=True)
     
     # 验证模型文件是否存在
     model_path = Path(model)
@@ -162,11 +210,11 @@ def train_yolov8(
             verbose=True,        # 详细输出
             
             # 验证配置
-            val=True,            # 训练时验证
-            plots=True,          # 保存训练图表
+            val=val,             # 训练时验证
+            plots=plots,         # 保存训练图表
             
-            # 混合精度训练 (RTX4060支持) - 禁用自动检查避免下载
-            amp=False,           # 禁用自动混合精度训练以避免下载
+            # 混合精度训练 (RTX4060支持)
+            amp=amp,
             
             # 其他参数
             **kwargs
@@ -216,8 +264,8 @@ def main():
                         help='模型配置文件(.yaml)或预训练权重(.pt)')
     parser.add_argument('--epochs', type=int, default=300,
                         help='训练轮数')
-    parser.add_argument('--batch', type=int, default=16,
-                        help='批次大小 (RTX4060建议: 16-24)')
+    parser.add_argument('--batch', type=int, default=8,
+                        help='批次大小 (RTX4060 + P2高分辨率检测头建议: 2-8)')
     parser.add_argument('--imgsz', type=int, default=640,
                         help='输入图像尺寸 (640/1280)')
     parser.add_argument('--device', type=str, default='0',
@@ -234,6 +282,17 @@ def main():
                         help='从上次中断处继续训练')
     parser.add_argument('--pretrained', action='store_true',
                         help='使用预训练权重（适用于.yaml配置文件）')
+
+    # 显存相关参数
+    parser.add_argument('--amp', dest='amp', action='store_true',
+                        help='启用自动混合精度训练，降低显存占用')
+    parser.add_argument('--no-amp', dest='amp', action='store_false',
+                        help='禁用自动混合精度训练')
+    parser.set_defaults(amp=None)
+    parser.add_argument('--no-val', action='store_true',
+                        help='训练时不进行验证，适合 smoke test 或节省时间/显存')
+    parser.add_argument('--no-plots', action='store_true',
+                        help='不保存训练图表，减少额外开销')
     
     # 高级参数
     parser.add_argument('--cache', type=str, default=None,
@@ -278,6 +337,9 @@ def main():
         name=args.name,
         resume=args.resume,
         use_pretrained=args.pretrained,
+        amp=args.amp,
+        val=not args.no_val,
+        plots=not args.no_plots,
         **extra_args
     )
 
