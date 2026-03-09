@@ -24,17 +24,130 @@ from ultralytics import YOLO
 import yaml
 
 
+def _patch_parse_model_for_sda(_tasks, EMA, RFB, SDA_Fusion):
+    """
+    在运行时动态 patch _tasks.parse_model，使其支持 EMA / RFB / SDA_Fusion，
+    无需手动修改 ultralytics 安装包文件。
+
+    兼容两种场景：
+      - 标准 Ultralytics 8.4.0（云端 pip install，未做任何改动）
+      - 本地已手动修改过的 tasks.py（跳过，幂等安全）
+
+    原理：
+      1. 通过 inspect.getsource 获取当前 parse_model 的源代码。
+      2. 若源码中尚不含本项目的扩展逻辑，则做两处字符串插入：
+           a) 将 EMA、RFB 加入 base_modules frozenset → 使 parse_model 为它们
+              自动注入 c1 并对 c2 做 width 缩放（与 Conv、C3k2 等标准模块相同）。
+           b) 在 elif 链中插入 SDA_Fusion 分支 → 处理三路输入的 c1_list 构建
+              与 c2 缩放（直接用 `else: c2 = ch[f]` 时 f 为列表会引发 TypeError）。
+      3. 将修改后的源码在 _tasks 模块自身的命名空间中 compile + exec，
+         自动替换 _tasks.parse_model（新函数的 __globals__ 即 tasks 模块 dict，
+         因此对 Conv、make_divisible 等的引用均可正常解析）。
+    """
+    import inspect
+    import re
+    import textwrap
+
+    # 优先从磁盘文件读取 parse_model 函数（最可靠：云端 tasks.py 始终在磁盘上，
+    # 且 inspect.getsource 不能获取 exec 动态编译函数的源码）
+    tasks_file = getattr(_tasks, '__file__', None)
+    src = None
+    if tasks_file:
+        try:
+            raw = Path(tasks_file).read_text(encoding='utf-8')
+            # 只提取 parse_model 函数体（从函数定义行到下一个顶层 def/class 之前）
+            pm_start = re.search(r'^def parse_model\(', raw, re.MULTILINE)
+            if pm_start:
+                # 找到 parse_model 之后第一个顶层 def 或 class
+                rest = raw[pm_start.start():]
+                next_top = re.search(r'\n(?:def |class )', rest[1:])
+                end = (next_top.start() + 1) if next_top else len(rest)
+                src = rest[:end].rstrip('\n')
+        except Exception:
+            src = None
+    if src is None:
+        try:
+            src = textwrap.dedent(inspect.getsource(_tasks.parse_model))
+        except OSError:
+            return  # 无法获取源码（不影响已修改版 tasks.py 的正常运行）
+
+    already_has_base = ('*([EMA, RFB]' in src) or bool(
+        re.search(r'\bEMA\b.*\bRFB\b', src.split('repeat_modules')[0])
+    )
+    already_has_elif = 'elif SDA_Fusion' in src
+
+    if already_has_base and already_has_elif:
+        return  # tasks.py 已是修改版，无需重复 patch
+
+    needs_exec = False
+
+    # ── 1. 将 EMA / RFB 加入 base_modules ────────────────────────────────────
+    if not already_has_base:
+        # 标准 8.4.0 base_modules 以 "A2C2f," 结尾，后接闭合 "}" 和 ")"
+        # 用正则匹配，容忍不同数量空白
+        new_src, n = re.subn(
+            r'(A2C2f,)(\s*\n\s*}\s*\n\s*\))',
+            r'\1\n            EMA,\n            RFB,\2',
+            src,
+            count=1,
+        )
+        if n:
+            src = new_src
+            needs_exec = True
+
+    # ── 2. 在 elif 链中插入 SDA_Fusion 分支 ──────────────────────────────────
+    if not already_has_elif:
+        SDA_ELIF = (
+            "        elif SDA_Fusion is not None and m is SDA_Fusion:\n"
+            "            c1_list = [ch[x] for x in f]\n"
+            "            c2 = make_divisible(min(args[1], max_channels) * width, 8)\n"
+            "            args = [c1_list, c2]\n"
+        )
+        # 插入在 TorchVision/Index 的 elif 之前（标准 8.4.0 中该行唯一存在）
+        TARGET = "        elif m in frozenset({TorchVision, Index}):"
+        if TARGET in src:
+            src = src.replace(TARGET, SDA_ELIF + TARGET, 1)
+            needs_exec = True
+
+    if not needs_exec:
+        return  # 无可用锚点（版本不匹配），不做 patch，避免引入错误
+
+    # ── 3. 在 tasks 模块命名空间中编译执行，直接替换 parse_model ─────────────
+    # vars(_tasks) 即 _tasks.__dict__，exec 后 parse_model 键值自动更新
+    exec(compile(src, _tasks.__file__ or '<sda_parse_model_patch>', 'exec'), vars(_tasks))
+
+
 def register_custom_modules(verbose=True):
-    """注册 SDA-STD YOLO11 自定义模块。"""
+    """
+    注册 SDA-STD YOLO11 自定义模块。
+
+    执行两步操作，使任意标准 Ultralytics 8.4.0 环境（包括未修改过 tasks.py
+    的云端服务器）都能正确加载本项目的 YAML 模型：
+
+    Step 1 — 名称注入：
+        将 EMA / RFB / SDA_Fusion 类写入 ultralytics.nn.tasks 的模块命名空间，
+        使 parse_model 内的 `globals()[m_str]` 查找能够找到它们。
+
+    Step 2 — parse_model patch（仅在必要时执行）：
+        若当前 tasks.py 尚未包含本项目的扩展逻辑（即从 pip 直接安装的标准版），
+        则动态修改内存中的 parse_model：
+          · 把 EMA / RFB 纳入 base_modules → 自动获得 c1 注入与 width 缩放
+          · 添加 SDA_Fusion elif 分支      → 正确处理三路输入的通道追踪
+        修改仅在进程内存中生效，不写入任何磁盘文件。
+    """
     try:
         import ultralytics.nn.tasks as _tasks
         from models.modules.ema import EMA
         from models.modules.rfb import RFB
         from models.modules.sda_fusion import SDA_Fusion
 
+        # Step 1: 注入模块类到 tasks 全局命名空间
         _tasks.EMA = EMA
         _tasks.RFB = RFB
         _tasks.SDA_Fusion = SDA_Fusion
+
+        # Step 2: 动态 patch parse_model（幂等，已修改版不会重复执行）
+        _patch_parse_model_for_sda(_tasks, EMA, RFB, SDA_Fusion)
 
         if verbose:
             print("[SDA-STD] 自定义模块注册成功: EMA, RFB, SDA_Fusion")

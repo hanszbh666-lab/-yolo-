@@ -155,8 +155,8 @@ python scripts/data_analysis.py --splits train val
 
 #### VisDrone数据集训练
 ```bash
-# 使用YOLOv8s预训练模型训练VisDrone
-python scripts/train.py --model models/yolov8s.yaml --data configs/visdrone.yaml --epochs 300
+# 使用自定义模型进行训练/预训练模型训练VisDrone
+python scripts/train.py --model "models/MRA-STD YOLO.yaml" --data configs/visdrone.yaml --epochs 3 --batch 4 --imgsz 640 --device 0 --name "sda_std_smoke_test"
 
 # 自定义参数训练
 python scripts/train.py --model models/yolov8s.yaml --data configs/visdrone.yaml --batch 16 --epochs 300 --imgsz 640
