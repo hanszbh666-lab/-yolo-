@@ -6,6 +6,11 @@ import os
 import sys
 from pathlib import Path
 
+# 将项目根目录加入 sys.path，确保自定义 models 包可被权重反序列化时导入
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 # 解决OpenMP库冲突问题
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
@@ -13,6 +18,34 @@ import torch
 from ultralytics import YOLO
 import cv2
 import numpy as np
+
+from scripts.size_metrics import (
+    DEFAULT_MEDIUM_AREA,
+    DEFAULT_SMALL_AREA,
+    SIZE_BUCKETS,
+    summarize_prediction_size_distribution,
+)
+
+
+def register_custom_modules(verbose=True):
+    """注册自定义模块，确保自定义模型权重可被正确加载。"""
+    try:
+        import ultralytics.nn.tasks as tasks
+        from models.modules.ema import EMA
+        from models.modules.rfb import RFB
+        from models.modules.sda_fusion import SDA_Fusion
+
+        tasks.EMA = EMA
+        tasks.RFB = RFB
+        tasks.SDA_Fusion = SDA_Fusion
+
+        if verbose:
+            print("[SDA-STD] 自定义模块注册成功: EMA, RFB, SDA_Fusion")
+        return True
+    except Exception as exc:
+        if verbose:
+            print(f"[SDA-STD] 警告：自定义模块注册失败。若加载标准模型可忽略，当前原因: {exc}")
+        return False
 
 
 def detect_images(
@@ -29,6 +62,11 @@ def detect_images(
     show=False,
     project='runs/detect',
     name='visdrone_detect',
+    line_width=2,
+    hide_labels=True,
+    hide_conf=True,
+    small_area=DEFAULT_SMALL_AREA,
+    medium_area=DEFAULT_MEDIUM_AREA,
     **kwargs
 ):
     """
@@ -48,6 +86,9 @@ def detect_images(
         show: 是否显示结果
         project: 保存目录
         name: 实验名称
+        line_width: 边界框线宽
+        hide_labels: 是否隐藏类别标签，默认只显示检测框
+        hide_conf: 是否隐藏置信度，默认只显示检测框
         **kwargs: 其他参数
     """
     # 检查模型文件
@@ -71,10 +112,12 @@ def detect_images(
     print(f"🎚️  IoU阈值: {iou}")
     print(f"🔧 设备: {'GPU ' + device if device != 'cpu' else 'CPU'}")
     print(f"💾 保存结果: {'是' if save else '否'}")
+    print(f"📏 尺寸阈值: small < {small_area:.0f}, medium < {medium_area:.0f}, large >= {medium_area:.0f}")
     print("="*80 + "\n")
     
     # 加载模型
     print("🔄 加载模型...")
+    register_custom_modules(verbose=True)
     model = YOLO(model_path)
     print("✅ 模型加载完成\n")
     
@@ -96,6 +139,9 @@ def detect_images(
             show=show,
             project=project,
             name=name,
+            line_width=line_width,
+            hide_labels=hide_labels,
+            hide_conf=hide_conf,
             verbose=True,
             stream=False,  # 返回所有结果
             **kwargs
@@ -115,6 +161,19 @@ def detect_images(
         print(f"  - 处理图像数: {len(results)}")
         print(f"  - 检测目标数: {total_detections}")
         print(f"  - 平均每张图: {total_detections/len(results):.2f}")
+
+        size_summary = summarize_prediction_size_distribution(results, small_area=small_area, medium_area=medium_area)
+        print("\n⚡ 推理速度:")
+        print(f"  - 预处理: {size_summary['speed_ms']['preprocess']:.2f} ms/图")
+        print(f"  - 推理: {size_summary['speed_ms']['inference']:.2f} ms/图")
+        print(f"  - 后处理: {size_summary['speed_ms']['postprocess']:.2f} ms/图")
+        print(f"  - 总时延: {size_summary['latency_ms']:.2f} ms/图")
+        print(f"  - FPS: {size_summary['fps']:.2f}")
+
+        print("\n📏 预测框尺寸分布:")
+        for bucket_name in SIZE_BUCKETS:
+            bucket = size_summary['buckets'][bucket_name]
+            print(f"  - {bucket_name:6s}: {bucket['count']:4d} ({bucket['ratio'] * 100:5.1f}%), 平均每图 {bucket['per_image']:.2f}, 平均置信度 {bucket['avg_confidence']:.4f}")
         
         if save:
             print(f"\n💾 结果保存至: {project}/{name}/")
@@ -131,7 +190,14 @@ def detect_images(
         raise
 
 
-def detect_single_image(model_path, image_path, conf=0.25, save_path=None):
+def detect_single_image(
+    model_path,
+    image_path,
+    conf=0.25,
+    save_path=None,
+    hide_labels=True,
+    hide_conf=True,
+):
     """
     检测单张图像并显示结果（简化版）
     
@@ -141,8 +207,15 @@ def detect_single_image(model_path, image_path, conf=0.25, save_path=None):
         conf: 置信度阈值
         save_path: 保存路径（可选）
     """
+    register_custom_modules(verbose=True)
     model = YOLO(model_path)
-    results = model.predict(image_path, conf=conf, save=save_path is not None)
+    results = model.predict(
+        image_path,
+        conf=conf,
+        save=save_path is not None,
+        hide_labels=hide_labels,
+        hide_conf=hide_conf,
+    )
     
     # 显示结果
     for result in results:
@@ -201,10 +274,18 @@ def main():
     # 可视化参数
     parser.add_argument('--line-width', type=int, default=2,
                         help='边界框线宽')
-    parser.add_argument('--hide-labels', action='store_true',
-                        help='隐藏标签')
-    parser.add_argument('--hide-conf', action='store_true',
-                        help='隐藏置信度')
+    parser.add_argument('--hide-labels', dest='hide_labels', action='store_true', default=True,
+                        help='隐藏标签（默认开启，仅显示检测框）')
+    parser.add_argument('--show-labels', dest='hide_labels', action='store_false',
+                        help='显示类别标签')
+    parser.add_argument('--hide-conf', dest='hide_conf', action='store_true', default=True,
+                        help='隐藏置信度（默认开启，仅显示检测框）')
+    parser.add_argument('--show-conf', dest='hide_conf', action='store_false',
+                        help='显示置信度')
+    parser.add_argument('--small-area', type=float, default=DEFAULT_SMALL_AREA,
+                        help='small 目标面积上限，默认 24^2')
+    parser.add_argument('--medium-area', type=float, default=DEFAULT_MEDIUM_AREA,
+                        help='medium 目标面积上限，默认 64^2')
     
     args = parser.parse_args()
     
@@ -237,6 +318,8 @@ def main():
         show=args.show,
         project=args.project,
         name=args.name,
+        small_area=args.small_area,
+        medium_area=args.medium_area,
         **extra_args
     )
 

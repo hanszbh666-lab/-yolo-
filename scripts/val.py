@@ -6,11 +6,44 @@ import os
 import sys
 from pathlib import Path
 
+# 将项目根目录加入 sys.path，确保自定义 models 包可被权重反序列化时导入
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 # 解决OpenMP库冲突问题
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 import torch
 from ultralytics import YOLO
+
+from scripts.size_metrics import (
+    DEFAULT_MEDIUM_AREA,
+    DEFAULT_SMALL_AREA,
+    SIZE_BUCKETS,
+    SizeAwareDetectionValidator,
+)
+
+
+def register_custom_modules(verbose=True):
+    """注册自定义模块，确保自定义模型权重可被正确加载。"""
+    try:
+        import ultralytics.nn.tasks as tasks
+        from models.modules.ema import EMA
+        from models.modules.rfb import RFB
+        from models.modules.sda_fusion import SDA_Fusion
+
+        tasks.EMA = EMA
+        tasks.RFB = RFB
+        tasks.SDA_Fusion = SDA_Fusion
+
+        if verbose:
+            print("[SDA-STD] 自定义模块注册成功: EMA, RFB, SDA_Fusion")
+        return True
+    except Exception as exc:
+        if verbose:
+            print(f"[SDA-STD] 警告：自定义模块注册失败。若加载标准模型可忽略，当前原因: {exc}")
+        return False
 
 
 def validate_model(
@@ -25,6 +58,8 @@ def validate_model(
     conf=0.001,
     iou=0.6,
     max_det=300,
+    small_area=DEFAULT_SMALL_AREA,
+    medium_area=DEFAULT_MEDIUM_AREA,
     project='runs/val',
     name='uavdt_val',
     **kwargs
@@ -65,10 +100,12 @@ def validate_model(
     print(f"🔧 设备: {'GPU ' + device if device != 'cpu' else 'CPU'}")
     print(f"🎚️  置信度阈值: {conf}")
     print(f"🎚️  IoU阈值: {iou}")
+    print(f"📏 尺寸阈值: small < {small_area:.0f}, medium < {medium_area:.0f}, large >= {medium_area:.0f}")
     print("="*80 + "\n")
     
     # 加载模型
     print(f"🔄 加载模型...")
+    register_custom_modules(verbose=True)
     model = YOLO(model_path)
     print(f"✅ 模型加载完成\n")
     
@@ -78,6 +115,7 @@ def validate_model(
     
     try:
         results = model.val(
+            validator=SizeAwareDetectionValidator,
             data=data_config,
             split=split,
             imgsz=imgsz,
@@ -88,6 +126,8 @@ def validate_model(
             conf=conf,
             iou=iou,
             max_det=max_det,
+            small_area=small_area,
+            medium_area=medium_area,
             project=project,
             name=name,
             plots=True,  # 保存验证图表
@@ -110,6 +150,19 @@ def validate_model(
             print(f"  mAP@0.5:0.95: {metrics.map:.4f}")
             print(f"  Precision   : {metrics.mp:.4f}")
             print(f"  Recall      : {metrics.mr:.4f}")
+
+        if hasattr(results, 'custom_size_metrics'):
+            size_metrics = results.custom_size_metrics
+            print("\n📏 尺寸分桶指标（自定义，面积阈值参考 COCO）:")
+            print("-" * 80)
+            for bucket_name in SIZE_BUCKETS:
+                bucket = size_metrics[bucket_name]
+                print(f"  AP_{bucket_name:6s}: {bucket['map']:.4f}")
+                print(f"  AP50_{bucket_name:4s}: {bucket['map50']:.4f}")
+                print(f"  Recall_{bucket_name}: {bucket['recall']:.4f}")
+                print(f"  Precision_{bucket_name}: {bucket['precision']:.4f}")
+                print(f"  Instances_{bucket_name}: {bucket['instances']}")
+                print(f"  Predictions_{bucket_name}: {bucket['predictions']}")
         
         # 各类别mAP
         if hasattr(results, 'box') and hasattr(metrics, 'maps'):
@@ -159,6 +212,10 @@ def main():
                         help='NMS IoU阈值')
     parser.add_argument('--max-det', type=int, default=300,
                         help='每张图像最大检测数')
+    parser.add_argument('--small-area', type=float, default=DEFAULT_SMALL_AREA,
+                        help='small 目标面积上限，默认 24^2')
+    parser.add_argument('--medium-area', type=float, default=DEFAULT_MEDIUM_AREA,
+                        help='medium 目标面积上限，默认 64^2')
     
     # 输出参数
     parser.add_argument('--project', type=str, default='runs/val',
@@ -189,6 +246,8 @@ def main():
         conf=args.conf,
         iou=args.iou,
         max_det=args.max_det,
+        small_area=args.small_area,
+        medium_area=args.medium_area,
         project=args.project,
         name=args.name
     )

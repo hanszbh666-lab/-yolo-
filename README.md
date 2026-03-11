@@ -208,10 +208,10 @@ python scripts/detect.py --source 0
 python scripts/train.py --name visdrone_yolov8s --model models/yolov8s.yaml --data configs/visdrone.yaml --epochs 300
 
 # 2. 在验证集上详细评估
-python scripts/val.py --name visdrone_yolov8s_val --model runs/train/yolov8s_visdrone/weights/best.pt --data configs/visdrone.yaml
+python scripts/val.py --name visdrone_MRA_STD_val --model runs/train/sda_std_vs/weights/best.pt --data configs/visdrone.yaml
 
 # 3. 实际应用检测
-python scripts/detect.py --name yolov8_visdrone --source datasets/visdrone/images/test --weights runs/train/yolov8s_visdrone/weights/best.pt
+python scripts/detect.py --name visdrone_MRA_STD --source datasets/visdrone/images/test --weights runs/train/sda_std_vs/weights/best.pt
 ```
 
 ### 4.2 UAVDT数据集实验流程

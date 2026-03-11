@@ -23,6 +23,13 @@ import torch
 from ultralytics import YOLO
 import yaml
 
+from scripts.size_metrics import (
+    DEFAULT_MEDIUM_AREA,
+    DEFAULT_SMALL_AREA,
+    SIZE_BUCKETS,
+    SizeAwareDetectionValidator,
+)
+
 
 def _patch_parse_model_for_sda(_tasks, EMA, RFB, SDA_Fusion):
     """
@@ -170,6 +177,8 @@ def train_yolov8(
     name=None,
     resume=False,
     use_pretrained=False,
+    small_area=DEFAULT_SMALL_AREA,
+    medium_area=DEFAULT_MEDIUM_AREA,
     **kwargs
 ):
     """
@@ -210,6 +219,7 @@ def train_yolov8(
     print(f"🔧 设备: {'GPU ' + device if device != 'cpu' else 'CPU'}")
     print(f"👷 工作线程: {workers}")
     print(f"💾 保存路径: {project}/{name}")
+    print(f"📏 尺寸阈值: small < {small_area:.0f}, medium < {medium_area:.0f}, large >= {medium_area:.0f}")
     print("="*80 + "\n")
     
     # 检查CUDA是否可用
@@ -333,6 +343,36 @@ def train_yolov8(
             if 'metrics/mAP50-95(B)' in metrics:
                 print(f"  - mAP@0.5:0.95: {metrics['metrics/mAP50-95(B)']:.4f}")
             print("="*80 + "\n")
+
+        best_model_path = Path(project) / name / 'weights' / 'best.pt'
+        if best_model_path.exists():
+            print("📏 开始对 best.pt 进行尺寸分桶验证...\n")
+            size_val_model = YOLO(str(best_model_path))
+            size_metrics = size_val_model.val(
+                validator=SizeAwareDetectionValidator,
+                data=data_config,
+                split='val',
+                imgsz=imgsz,
+                batch=batch_size,
+                device=device,
+                conf=0.001,
+                iou=0.6,
+                max_det=300,
+                small_area=small_area,
+                medium_area=medium_area,
+                plots=False,
+                verbose=False,
+            )
+            if hasattr(size_metrics, 'custom_size_metrics'):
+                print("📏 Best.pt 尺寸分桶指标（自定义，面积阈值参考 COCO）:")
+                print("-" * 80)
+                for bucket_name in SIZE_BUCKETS:
+                    bucket = size_metrics.custom_size_metrics[bucket_name]
+                    print(f"  AP_{bucket_name:6s}: {bucket['map']:.4f}")
+                    print(f"  AP50_{bucket_name:4s}: {bucket['map50']:.4f}")
+                    print(f"  Recall_{bucket_name}: {bucket['recall']:.4f}")
+                    print(f"  Precision_{bucket_name}: {bucket['precision']:.4f}")
+                print("="*80 + "\n")
         
         return results
         
@@ -384,6 +424,10 @@ def main():
                         help='数据集缓存 (ram/disk/None)')
     parser.add_argument('--patience', type=int, default=50,
                         help='早停耐心值')
+    parser.add_argument('--small-area', type=float, default=DEFAULT_SMALL_AREA,
+                        help='small 目标面积上限，默认 24^2')
+    parser.add_argument('--medium-area', type=float, default=DEFAULT_MEDIUM_AREA,
+                        help='medium 目标面积上限，默认 64^2')
     
     args = parser.parse_args()
     
@@ -422,6 +466,8 @@ def main():
         name=args.name,
         resume=args.resume,
         use_pretrained=args.pretrained,
+        small_area=args.small_area,
+        medium_area=args.medium_area,
         **extra_args
     )
 

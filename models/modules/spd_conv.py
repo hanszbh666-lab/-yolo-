@@ -14,7 +14,6 @@ SPDConv: Space-to-Depth Convolution
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from ultralytics.nn.modules.conv import Conv
 
@@ -64,8 +63,18 @@ class SPDConv(nn.Module):
             Tensor: 下采样后的特征图，shape = (B, c2, H/2, W/2)。
         """
         # --- Step 1: SPD 层（无损下采样） ---
+        # 按原作者仓库中的实现顺序显式切片并沿通道拼接：
+        # [H偶/W偶, H奇/W偶, H偶/W奇, H奇/W奇]
         # (B, C, H, W) -> (B, 4C, H/2, W/2)
-        x = F.pixel_unshuffle(x, downscale_factor=2)
+        x = torch.cat(
+            [
+                x[..., ::2, ::2],
+                x[..., 1::2, ::2],
+                x[..., ::2, 1::2],
+                x[..., 1::2, 1::2],
+            ],
+            1,
+        )
 
         # --- Step 2: 无步长标准卷积 ---
         # (B, 4C, H/2, W/2) -> (B, c2, H/2, W/2)

@@ -138,9 +138,9 @@ def analyze_dataset(dataset_root, split='train'):
             stats['bbox_sizes'].append(bbox[2:])  # [width, height]
             
             # 分类目标尺寸
-            if area < 32 * 32:
+            if area < 24 * 24:
                 stats['small_objects'] += 1
-            elif area < 96 * 96:
+            elif area < 64 * 64:
                 stats['medium_objects'] += 1
             else:
                 stats['large_objects'] += 1
