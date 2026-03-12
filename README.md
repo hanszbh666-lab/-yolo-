@@ -156,7 +156,7 @@ python scripts/data_analysis.py --splits train val
 #### VisDrone数据集训练
 ```bash
 # 使用自定义模型进行训练/预训练模型训练VisDrone
-python scripts/train.py --model "models/MRA-STD YOLO.yaml" --data configs/visdrone.yaml --epochs 3 --batch 4 --imgsz 640 --device 0 --name "sda_std_smoke_test"
+python scripts/train.py --model "models/MRA-STD YOLO.yaml" --data configs/visdrone.yaml --epochs 200 --batch 8 --imgsz 640 --device 0 --name "sda_std_vs"
 
 # 自定义参数训练
 python scripts/train.py --model models/yolov8s.yaml --data configs/visdrone.yaml --batch 16 --epochs 300 --imgsz 640
@@ -211,7 +211,7 @@ python scripts/train.py --name visdrone_yolov8s --model models/yolov8s.yaml --da
 python scripts/val.py --name visdrone_MRA_STD_val --model runs/train/sda_std_vs/weights/best.pt --data configs/visdrone.yaml
 
 # 3. 实际应用检测
-python scripts/detect.py --name visdrone_MRA_STD --source datasets/visdrone/images/test --weights runs/train/sda_std_vs/weights/best.pt
+python scripts/detect.py --name visdrone_MRA_STD --source datasets/UAVDT/images/test --weights runs/train/sda_std_vs/weights/best.pt
 ```
 
 ### 4.2 UAVDT数据集实验流程
