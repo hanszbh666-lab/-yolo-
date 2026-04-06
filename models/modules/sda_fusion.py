@@ -15,7 +15,7 @@ SDA_Fusion: Space-Depth Adaptive Fusion
     x3 — 深层特征（低分辨率、高语义）: 如 P5, (B, C3, H/2,H/2) 或已上采样
 """
 
-import torch
+
 import torch.nn as nn
 import torch.nn.functional as F
 

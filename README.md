@@ -156,7 +156,7 @@ python scripts/data_analysis.py --splits train val
 #### VisDrone数据集训练
 ```bash
 # 使用自定义模型进行训练/预训练模型训练VisDrone
-python scripts/train.py --model "models/MRA-STD YOLO.yaml" --data configs/visdrone.yaml --epochs 200 --batch 8 --imgsz 640 --device 0 --name "sda_std_vs"
+python scripts/train.py --model "models/MRA-STD YOLO.yaml" --data configs/visdrone.yaml --epochs 200 --batch 16 --imgsz 640 --device 0,1 --name "sda_std_vs"
 
 # 自定义参数训练
 python scripts/train.py --model models/yolov8s.yaml --data configs/visdrone.yaml --batch 16 --epochs 300 --imgsz 640
@@ -175,7 +175,7 @@ python scripts/train.py --model models/yolov8s_improved.yaml --data configs/uavd
 
 ```bash
 # 验证训练好的模型
-python scripts/val.py --model runs/train/yolov8s_visdrone/weights/best.pt
+runs\train\sda_std_vs\weights\best.pt --model runs/train/yolov8s_visdrone/weights/best.pt
 
 # 在测试集上验证
 python scripts/val.py --model runs/train/yolov8s_visdrone/weights/best.pt --split test
@@ -205,13 +205,13 @@ python scripts/detect.py --source 0
 
 ```bash
 # 1. 训练模型
-python scripts/train.py --name visdrone_yolov8s --model models/yolov8s.yaml --data configs/visdrone.yaml --epochs 300
+python scripts/train.py --name mra-std-vs --model models/MRA-STD YOLO.yaml --data configs/visdrone.yaml --epochs 300
 
 # 2. 在验证集上详细评估
 python scripts/val.py --name visdrone_MRA_STD_val --model runs/train/sda_std_vs/weights/best.pt --data configs/visdrone.yaml
 
 # 3. 实际应用检测
-python scripts/detect.py --name visdrone_MRA_STD --source datasets/UAVDT/images/test --weights runs/train/sda_std_vs/weights/best.pt
+python scripts/detect.py --name visdrone_MRA_STD --source datasets/visdrone/images/test --weights runs/train/sda_std_vs/weights/best.pt
 ```
 
 ### 4.2 UAVDT数据集实验流程

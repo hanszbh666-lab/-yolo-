@@ -283,9 +283,9 @@ def main():
     parser.add_argument('--show-conf', dest='hide_conf', action='store_false',
                         help='显示置信度')
     parser.add_argument('--small-area', type=float, default=DEFAULT_SMALL_AREA,
-                        help='small 目标面积上限，默认 24^2')
+                        help='small 目标面积上限，默认 32^2（COCO）')
     parser.add_argument('--medium-area', type=float, default=DEFAULT_MEDIUM_AREA,
-                        help='medium 目标面积上限，默认 64^2')
+                        help='medium 目标面积上限，默认 96^2（COCO）')
     
     args = parser.parse_args()
     

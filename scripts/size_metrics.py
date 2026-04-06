@@ -11,8 +11,8 @@ from ultralytics.utils import ops
 from ultralytics.utils.metrics import ap_per_class, box_iou
 
 
-DEFAULT_SMALL_AREA = 24**2
-DEFAULT_MEDIUM_AREA = 64**2
+DEFAULT_SMALL_AREA = 32**2
+DEFAULT_MEDIUM_AREA = 96**2
 SIZE_BUCKETS = ("small", "medium", "large")
 
 
@@ -105,10 +105,27 @@ def summarize_prediction_size_distribution(
 class SizeAwareDetectionValidator(DetectionValidator):
     """Detection validator with custom small/medium/large metrics for YOLO-format datasets."""
 
+    configured_small_area: float | None = None
+    configured_medium_area: float | None = None
+
+    @classmethod
+    def configure_thresholds(
+        cls,
+        small_area: float = DEFAULT_SMALL_AREA,
+        medium_area: float = DEFAULT_MEDIUM_AREA,
+    ) -> None:
+        """Configure runtime area thresholds without touching Ultralytics cfg args."""
+        cls.configured_small_area = float(small_area)
+        cls.configured_medium_area = float(medium_area)
+
     def init_metrics(self, model: torch.nn.Module) -> None:
         super().init_metrics(model)
-        self.small_area = float(getattr(self.args, "small_area", DEFAULT_SMALL_AREA))
-        self.medium_area = float(getattr(self.args, "medium_area", DEFAULT_MEDIUM_AREA))
+        self.small_area = float(
+            getattr(self.args, "small_area", self.configured_small_area or DEFAULT_SMALL_AREA)
+        )
+        self.medium_area = float(
+            getattr(self.args, "medium_area", self.configured_medium_area or DEFAULT_MEDIUM_AREA)
+        )
         self.size_stats = {
             name: {"tp": [], "conf": [], "pred_cls": [], "target_cls": [], "target_img": []}
             for name in SIZE_BUCKETS
@@ -132,7 +149,16 @@ class SizeAwareDetectionValidator(DetectionValidator):
             key: value.clone() if isinstance(value, torch.Tensor) else value for key, value in predn.items()
         }
         if scaled["bboxes"].numel():
-            scaled = self.scale_preds(scaled, pbatch)
+            # Ultralytics>=8.4 provides scale_preds, while 8.3.x does not.
+            if hasattr(self, "scale_preds"):
+                scaled = self.scale_preds(scaled, pbatch)
+            else:
+                scaled["bboxes"] = ops.scale_boxes(
+                    pbatch["imgsz"],
+                    scaled["bboxes"],
+                    pbatch["ori_shape"],
+                    ratio_pad=pbatch["ratio_pad"],
+                )
         return scaled
 
     def _assign_prediction_buckets(

@@ -1,8 +1,10 @@
 """
-YOLOv8s训练脚本 - VisDrone小目标检测
+YOLOv11改进实验训练脚本 - VisDrone小目标检测
 针对RTX4060 8GB显存优化的训练配置
 """
 import os
+import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,6 +31,104 @@ from scripts.size_metrics import (
     SIZE_BUCKETS,
     SizeAwareDetectionValidator,
 )
+
+
+def _parse_device_ids(device):
+    """将 device 参数解析为 GPU ID 列表。"""
+    if device is None:
+        return []
+    if isinstance(device, int):
+        return [device] if device >= 0 else []
+    if isinstance(device, (list, tuple)):
+        parsed = []
+        for item in device:
+            try:
+                parsed.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return parsed
+
+    device_str = str(device).strip()
+    if not device_str or device_str.lower() in {'cpu', 'mps'}:
+        return []
+
+    parsed = []
+    for item in device_str.split(','):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            parsed.append(int(item))
+        except ValueError:
+            continue
+    return parsed
+
+
+def _is_multi_gpu_request(device):
+    """判断当前是否请求多卡训练。"""
+    return len(_parse_device_ids(device)) > 1
+
+
+def _find_free_port():
+    """为 torch.distributed.run 找一个可用端口。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(('127.0.0.1', 0))
+        return sock.getsockname()[1]
+
+
+def _launch_manual_ddp(args):
+    """在多卡场景下直接用 torch.distributed.run 启动当前脚本。"""
+    nproc_per_node = len(_parse_device_ids(args.device))
+    script_path = Path(__file__).resolve()
+
+    cmd = [
+        sys.executable,
+        '-m',
+        'torch.distributed.run',
+        '--nproc_per_node',
+        str(nproc_per_node),
+        '--master_port',
+        str(_find_free_port()),
+        str(script_path),
+        '--data',
+        args.data,
+        '--model',
+        args.model,
+        '--epochs',
+        str(args.epochs),
+        '--batch',
+        str(args.batch),
+        '--imgsz',
+        str(args.imgsz),
+        '--device',
+        str(args.device),
+        '--workers',
+        str(args.workers),
+        '--project',
+        args.project,
+        '--patience',
+        str(args.patience),
+        '--small-area',
+        str(args.small_area),
+        '--medium-area',
+        str(args.medium_area),
+    ]
+
+    if args.name is not None:
+        cmd.extend(['--name', args.name])
+    if args.cache:
+        cmd.extend(['--cache', args.cache])
+    if args.resume:
+        cmd.append('--resume')
+    if args.pretrained:
+        cmd.append('--pretrained')
+
+    env = os.environ.copy()
+    env['PYTHONPATH'] = f"{_PROJECT_ROOT}{os.pathsep}{env['PYTHONPATH']}" if env.get('PYTHONPATH') else _PROJECT_ROOT
+
+    print("[DDP] 检测到多卡请求，改用当前脚本直接启动 torch.distributed.run")
+    print(f"[DDP] 使用 GPU: {args.device} | 进程数: {nproc_per_node}")
+    subprocess.run(cmd, check=True, env=env)
 
 
 def _patch_parse_model_for_sda(_tasks, EMA, RFB, SDA_Fusion):
@@ -182,7 +282,7 @@ def train_yolov8(
     **kwargs
 ):
     """
-    训练YOLOv8模型
+    训练YOLO模型（支持YOLOv11改进实验）
     
     Args:
         data_config: 数据集配置文件路径
@@ -209,7 +309,7 @@ def train_yolov8(
     
     # 打印训练配置
     print("\n" + "="*80)
-    print("🚀 YOLOv8 VisDrone训练配置")
+    print("🚀 YOLOv11改进实验训练配置")
     print("="*80)
     print(f"📊 数据集配置: {data_config}")
     print(f"🎯 模型: {model}")
@@ -391,7 +491,7 @@ def main():
     """主函数 - 解析命令行参数并开始训练"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='YOLOv8训练脚本 - VisDrone小目标检测')
+    parser = argparse.ArgumentParser(description='YOLOv11改进实验训练脚本 - VisDrone小目标检测')
     
     # 基础参数
     parser.add_argument('--data', type=str, default='configs/visdrone.yaml',
@@ -425,9 +525,9 @@ def main():
     parser.add_argument('--patience', type=int, default=50,
                         help='早停耐心值')
     parser.add_argument('--small-area', type=float, default=DEFAULT_SMALL_AREA,
-                        help='small 目标面积上限，默认 24^2')
+                        help='small 目标面积上限，默认 32^2（COCO）')
     parser.add_argument('--medium-area', type=float, default=DEFAULT_MEDIUM_AREA,
-                        help='medium 目标面积上限，默认 64^2')
+                        help='medium 目标面积上限，默认 96^2（COCO）')
     
     args = parser.parse_args()
     
@@ -446,6 +546,12 @@ def main():
     # 确保路径正确
     script_dir = Path(__file__).parent.parent
     os.chdir(script_dir)
+
+    # 对包含自定义模块/验证器的脚本，绕过 Ultralytics 自动生成的 DDP 临时脚本。
+    # 直接用 torch.distributed.run 重启当前脚本，确保每个子进程都会执行完整初始化。
+    if _is_multi_gpu_request(args.device) and 'LOCAL_RANK' not in os.environ:
+        _launch_manual_ddp(args)
+        return
     
     # 额外参数
     extra_args = {}

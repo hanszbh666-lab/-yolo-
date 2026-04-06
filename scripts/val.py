@@ -54,7 +54,6 @@ def validate_model(
     device='0',
     split='val',
     save_json=False,
-    save_hybrid=False,
     conf=0.001,
     iou=0.6,
     max_det=300,
@@ -75,7 +74,6 @@ def validate_model(
         device: 设备 ('0' 或 'cpu')
         split: 验证数据集划分 ('val' 或 'test')
         save_json: 是否保存COCO格式的JSON结果
-        save_hybrid: 是否保存混合标签
         conf: 置信度阈值
         iou: NMS的IoU阈值
         max_det: 每张图像最大检测数
@@ -106,6 +104,10 @@ def validate_model(
     # 加载模型
     print(f"🔄 加载模型...")
     register_custom_modules(verbose=True)
+    SizeAwareDetectionValidator.configure_thresholds(
+        small_area=small_area,
+        medium_area=medium_area,
+    )
     model = YOLO(model_path)
     print(f"✅ 模型加载完成\n")
     
@@ -122,12 +124,9 @@ def validate_model(
             batch=batch_size,
             device=device,
             save_json=save_json,
-            save_hybrid=save_hybrid,
             conf=conf,
             iou=iou,
             max_det=max_det,
-            small_area=small_area,
-            medium_area=medium_area,
             project=project,
             name=name,
             plots=True,  # 保存验证图表
@@ -146,6 +145,7 @@ def validate_model(
         # mAP指标
         if hasattr(results, 'box'):
             metrics = results.box
+            print(f"  mAP         : {metrics.map:.4f}")
             print(f"  mAP@0.5     : {metrics.map50:.4f}")
             print(f"  mAP@0.5:0.95: {metrics.map:.4f}")
             print(f"  Precision   : {metrics.mp:.4f}")
@@ -170,8 +170,8 @@ def validate_model(
             print("-" * 80)
             class_names = ['pedestrian', 'people', 'bicycle', 'car', 'van', 
                           'truck', 'tricycle', 'awning-tricycle', 'bus', 'motor']
-            for i, (name, map_val) in enumerate(zip(class_names, metrics.maps)):
-                print(f"  {name:20s}: {map_val:.4f}")
+            for class_name, map_val in zip(class_names, metrics.maps):
+                print(f"  {class_name:20s}: {map_val:.4f}")
         
         print("="*80)
         print(f"📁 结果保存至: {project}/{name}/")
@@ -213,9 +213,9 @@ def main():
     parser.add_argument('--max-det', type=int, default=300,
                         help='每张图像最大检测数')
     parser.add_argument('--small-area', type=float, default=DEFAULT_SMALL_AREA,
-                        help='small 目标面积上限，默认 24^2')
+                        help='small 目标面积上限，默认 32^2（COCO）')
     parser.add_argument('--medium-area', type=float, default=DEFAULT_MEDIUM_AREA,
-                        help='medium 目标面积上限，默认 64^2')
+                        help='medium 目标面积上限，默认 96^2（COCO）')
     
     # 输出参数
     parser.add_argument('--project', type=str, default='runs/val',
@@ -224,8 +224,6 @@ def main():
                         help='实验名称')
     parser.add_argument('--save-json', action='store_true',
                         help='保存COCO格式JSON')
-    parser.add_argument('--save-hybrid', action='store_true',
-                        help='保存混合标签')
     
     args = parser.parse_args()
     
@@ -242,7 +240,6 @@ def main():
         device=args.device,
         split=args.split,
         save_json=args.save_json,
-        save_hybrid=args.save_hybrid,
         conf=args.conf,
         iou=args.iou,
         max_det=args.max_det,
