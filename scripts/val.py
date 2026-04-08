@@ -1,5 +1,5 @@
 """
-YOLOv8模型验证脚本
+YOLO11模型验证脚本
 在验证集上评估训练好的模型性能
 """
 import os
@@ -47,7 +47,7 @@ def register_custom_modules(verbose=True):
 
 
 def validate_model(
-    model_path='runs/train/uavdt_yolov8s/weights/best.pt',
+    model_path='runs/train/uavdt_yolo11/weights/best.pt',
     data_config='configs/uavdt.yaml',
     imgsz=640,
     batch_size=16,
@@ -88,7 +88,7 @@ def validate_model(
         sys.exit(1)
     
     print("\n" + "="*80)
-    print("📊 YOLOv8 模型验证")
+    print("📊 YOLO11 模型验证")
     print("="*80)
     print(f"🎯 模型路径: {model_path}")
     print(f"📊 数据集配置: {data_config}")
@@ -188,11 +188,11 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='YOLOv8模型验证脚本')
+    parser = argparse.ArgumentParser(description='YOLO11模型验证脚本')
     
     # 基础参数
     parser.add_argument('--model', '--weights', type=str, 
-                        default='runs/train/yolov8s_visdrone/weights/best.pt',
+                        default='runs/train/sda_std_vs/weights/best.pt',
                         help='模型权重路径')
     parser.add_argument('--data', type=str, default='configs/visdrone.yaml',
                         help='数据集配置文件')

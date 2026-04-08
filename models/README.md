@@ -6,20 +6,24 @@
 
 ## 📄 文件说明
 
-### yolov8s.yaml
-- **用途**: YOLOv8s基础模型配置
-- **来源**: 从ultralytics官方配置复制
-- **说明**: 这是标准的YOLOv8s配置，适合直接训练使用
+### yolov11.yaml
+- **用途**: YOLO11基础模型配置
+- **来源**: 从ultralytics官方配置迁移与适配
+- **说明**: 作为基础模型对照实验使用
 
-### yolov8s_improved.yaml
-- **用途**: 改进版模型配置文件
-- **说明**: 在此文件中实现你的模型改进
+### MRA-STD YOLO.yaml
+- **用途**: 当前主改进模型配置文件
+- **说明**: 面向小目标检测的主实验配置
 - **改进方向**:
   - 添加注意力机制（CBAM、SE、CA等）
   - 改进特征融合网络（BiFPN、ASFF等）
   - 增加小目标检测层（P2层）
   - 替换更强的主干网络
   - 改进检测头结构
+
+### Ablation_experiments/
+- **用途**: 消融实验配置目录
+- **说明**: 按模块拆分配置，便于对比不同改进组件效果
 
 ## 🎯 模型配置结构说明
 
@@ -86,16 +90,16 @@ scales:
 ### 训练时指定模型
 ```bash
 # 使用基础模型
-python scripts/train.py --model models/yolov8s.yaml
+python scripts/train.py --model models/yolov11.yaml
 
 # 使用改进模型
-python scripts/train.py --model models/yolov8s_improved.yaml
+python scripts/train.py --model "models/MRA-STD YOLO.yaml"
 ```
 
 ### 从预训练模型微调
 ```bash
 # 加载预训练权重
-python scripts/train.py --weights weights/yolov8s.pt --cfg models/yolov8s_improved.yaml
+python scripts/train.py --model runs/train/transfer_source_vs/weights/best.pt --data configs/uavdt.yaml --epochs 100
 ```
 
 ## 🚀 常用改进策略
@@ -110,7 +114,7 @@ python scripts/train.py --weights weights/yolov8s.pt --cfg models/yolov8s_improv
 
 ## 📚 参考资源
 
-- [YOLOv8官方文档](https://docs.ultralytics.com/)
+- [YOLO11官方文档](https://docs.ultralytics.com/)
 - [ultralytics GitHub](https://github.com/ultralytics/ultralytics)
 - [VisDrone数据集](http://aiskyeye.com/)
 

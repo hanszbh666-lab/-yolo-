@@ -1,5 +1,5 @@
 """
-YOLOv8目标检测推理脚本
+YOLO11目标检测推理脚本
 对图像或视频进行目标检测
 """
 import os
@@ -49,7 +49,7 @@ def register_custom_modules(verbose=True):
 
 
 def detect_images(
-    model_path='runs/train/yolov8s_visdrone/weights/best.pt',
+    model_path='runs/train/sda_std_vs/weights/best.pt',
     source='datasets/visdrone/images/test',
     imgsz=640,
     conf=0.25,
@@ -103,7 +103,7 @@ def detect_images(
         sys.exit(1)
     
     print("\n" + "="*80)
-    print("🎯 YOLOv8 目标检测")
+    print("🎯 YOLO11 目标检测")
     print("="*80)
     print(f"🎯 模型: {model_path}")
     print(f"📁 输入源: {source}")
@@ -233,11 +233,11 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='YOLOv8目标检测推理脚本')
+    parser = argparse.ArgumentParser(description='YOLO11目标检测推理脚本')
     
     # 基础参数
     parser.add_argument('--model', '--weights', type=str,
-                        default='runs/train/yolov8s_visdrone/weights/best.pt',
+                        default='runs/train/sda_std_vs/weights/best.pt',
                         help='模型权重路径')
     parser.add_argument('--source', type=str,
                         default='datasets/visdrone/images/test',

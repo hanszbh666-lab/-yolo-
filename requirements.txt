@@ -1,11 +1,11 @@
-# YOLO11/YOLOv8 VisDrone训练环境依赖
+# YOLO11 VisDrone训练环境依赖
 
 # 核心深度学习框架
 torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0
 
-# YOLOv8/YOLO11官方库
+# YOLO11官方库
 ultralytics>=8.0.0
 
 # 计算机视觉

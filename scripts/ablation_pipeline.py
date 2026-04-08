@@ -31,7 +31,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Reuse existing project entry points.
-from scripts.train import train_yolov8
+from scripts.train import train_yolo11
 from scripts.val import validate_model
 from scripts.detect import detect_images
 from scripts.size_metrics import summarize_prediction_size_distribution
@@ -165,6 +165,23 @@ def collect_ids_from_excel(xlsx_path: Path) -> List[str]:
     return uniq
 
 
+def parse_only_ids(only_arg: str) -> List[str]:
+    """Parse --only argument, supporting both English and Chinese commas."""
+    if not only_arg:
+        return []
+
+    normalized = only_arg.replace("，", ",")
+    ids = [x.strip().upper() for x in normalized.split(",") if x.strip()]
+
+    uniq: List[str] = []
+    seen = set()
+    for exp_id in ids:
+        if exp_id not in seen:
+            seen.add(exp_id)
+            uniq.append(exp_id)
+    return uniq
+
+
 def resolve_weight_for_experiment(spec: ExperimentSpec) -> Optional[Path]:
     if spec.baseline_weight:
         p = _abs(spec.baseline_weight)
@@ -205,7 +222,7 @@ def train_if_needed(spec: ExperimentSpec, base_args: Dict, train_name: str) -> P
     if not model_yaml.exists():
         raise FileNotFoundError(f"Model yaml not found: {model_yaml}")
 
-    train_yolov8(
+    train_yolo11(
         data_config=base_args["data"],
         model=str(model_yaml),
         epochs=base_args["epochs"],
@@ -381,10 +398,10 @@ def run_pipeline(args):
 
     detect_source = _norm_path(args.detect_source)
 
-    experiment_ids = collect_ids_from_excel(xlsx_path)
     if args.only:
-        selected = {x.strip().upper() for x in args.only.split(",") if x.strip()}
-        experiment_ids = [x for x in experiment_ids if x in selected]
+        experiment_ids = parse_only_ids(args.only)
+    else:
+        experiment_ids = collect_ids_from_excel(xlsx_path)
 
     records: List[Dict[str, object]] = []
 

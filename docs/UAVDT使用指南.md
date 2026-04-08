@@ -51,12 +51,11 @@ python scripts/analyze_uavdt.py path/to/GT/folder --create-dirs
 ### 4. 开始训练
 
 ```bash
-# 使用UAVDT数据集训练YOLOv8s
-python scripts/train.py --data configs/uavdt.yaml --name uavdt_yolov8s
+# 使用UAVDT数据集训练YOLO11
+python scripts/train.py --data configs/uavdt.yaml --model models/yolov11.yaml --name uavdt_yolo11
 
 # 使用预训练权重加速训练
-python scripts/download_weights.py yolov8s
-python scripts/train.py --data configs/uavdt.yaml --model weights/yolov8s.pt --name uavdt_yolov8s_pretrained
+python scripts/train.py --data configs/uavdt.yaml --model weights/yolo11s-visdrone.pt --name uavdt_yolo11_pretrained
 ```
 
 ## 📁 目录结构
@@ -122,7 +121,8 @@ names:
 # 基础训练
 python scripts/train.py \
   --data configs/uavdt.yaml \
-  --name uavdt_yolov8s \
+  --model models/yolov11.yaml \
+  --name uavdt_yolo11 \
   --epochs 300 \
   --batch 16 \
   --imgsz 640
@@ -130,7 +130,8 @@ python scripts/train.py \
 # 无人机场景优化训练
 python scripts/train.py \
   --data configs/uavdt.yaml \
-  --name uavdt_yolov8s_optimized \
+  --model "models/MRA-STD YOLO.yaml" \
+  --name uavdt_yolo11_optimized \
   --epochs 300 \
   --batch 16 \
   --imgsz 1280 \     # 更大输入尺寸，适合小目标
@@ -149,13 +150,13 @@ python scripts/train.py \
 ```bash
 # 验证训练好的模型
 python scripts/val.py \
-  --weights runs/train/uavdt_yolov8s/weights/best.pt \
+  --weights runs/train/uavdt_yolo11/weights/best.pt \
   --data configs/uavdt.yaml \
   --name uavdt_val
 
 # 在测试集上评估
 python scripts/val.py \
-  --weights runs/train/uavdt_yolov8s/weights/best.pt \
+  --weights runs/train/uavdt_yolo11/weights/best.pt \
   --data configs/uavdt.yaml \
   --split test \
   --name uavdt_test_eval
@@ -166,13 +167,13 @@ python scripts/val.py \
 ```bash
 # 使用训练好的模型进行检测
 python scripts/detect.py \
-  --weights runs/train/uavdt_yolov8s/weights/best.pt \
+  --weights runs/train/uavdt_yolo11/weights/best.pt \
   --source path/to/test/images \
   --name uavdt_detection
 
 # 检测视频
 python scripts/detect.py \
-  --weights runs/train/uavdt_yolov8s/weights/best.pt \
+  --weights runs/train/uavdt_yolo11/weights/best.pt \
   --source path/to/test/video.mp4 \
   --name uavdt_video_detection
 ```

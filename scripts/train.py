@@ -265,9 +265,9 @@ def register_custom_modules(verbose=True):
         return False
 
 
-def train_yolov8(
+def train_yolo11(
     data_config='configs/visdrone.yaml',
-    model='models/yolov8s.yaml',
+    model='models/yolov11.yaml',
     epochs=300,
     batch_size=16,
     imgsz=640,
@@ -496,7 +496,7 @@ def main():
     # 基础参数
     parser.add_argument('--data', type=str, default='configs/visdrone.yaml',
                         help='数据集配置文件路径')
-    parser.add_argument('--model', type=str, default='models/yolov8s.yaml',
+    parser.add_argument('--model', type=str, default='models/yolov11.yaml',
                         help='模型配置文件(.yaml)或预训练权重(.pt)')
     parser.add_argument('--epochs', type=int, default=300,
                         help='训练轮数')
@@ -560,7 +560,7 @@ def main():
     extra_args['patience'] = args.patience
     
     # 开始训练
-    train_yolov8(
+    train_yolo11(
         data_config=args.data,
         model=args.model,
         epochs=args.epochs,
