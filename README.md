@@ -207,13 +207,14 @@ python scripts/detect.py --source 0
 
 ```bash
 # 1. 训练模型
-python scripts/train.py --name mra-std-vs --model models/MRA-STD YOLO.yaml --data configs/visdrone.yaml --epochs 300
+python scripts/train.py --name mra-std-uavdt --model models/MRA-STD-YOLO.yaml --data configs/uavdt.yaml --epochs 300 --batch 2 --imgsz 640
+
 
 # 2. 在验证集上详细评估
-python scripts/val.py --name ablation_b1_val --model runs/train/ablation_b1/weights/best.pt --data configs/visdrone.yaml
+python scripts/val.py --name yolov13-vs --model weights/yolo13s-visdrone.pt --data configs/visdrone.yaml
 
 # 3. 实际应用检测
-python scripts/detect.py --name ablation_b1_detect --source datasets/visdrone/images/test --weights runs/train/ablation_b1/weights/best.pt
+python scripts/detect.py --name ablation_b3_detect --source datasets/visdrone/images/test --weights runs/train/ablation_b3/weights/best.pt
 ```
 
 ### 4.2 迁移训练流程（VisDrone → UAVDT）
@@ -225,7 +226,7 @@ python scripts/detect.py --name ablation_b1_detect --source datasets/visdrone/im
 python scripts/train.py --name transfer_source_vs --model models/MRA-STD YOLO.yaml --data configs/visdrone.yaml --epochs 200
 
 # 2. 使用源模型权重在UAVDT上进行迁移训练（微调）
-python scripts/train.py --name transfer_uavdt_ft --model runs/train/transfer_source_vs/weights/best.pt --data configs/uavdt.yaml --epochs 100 --batch 16 --imgsz 640
+python scripts/train.py --name transfer_uavdt_ft --model runs/train/sda_std_vs/weights/best.pt --data configs/uavdt.yaml --epochs 100 --batch 16 --imgsz 640
 
 # 3. 在UAVDT验证集评估迁移效果
 python scripts/val.py --name transfer_uavdt_ft_val --model runs/train/transfer_uavdt_ft/weights/best.pt --data configs/uavdt.yaml

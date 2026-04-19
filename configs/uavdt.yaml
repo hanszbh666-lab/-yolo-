@@ -1,8 +1,8 @@
 # UAVDT数据集配置文件
 # YOLO格式数据集配置
 
-# 数据集路径 (相对于项目根目录)
-path: datasets/uavdt  # dataset root dir
+# 数据集路径 (相对于 Ultralytics datasets_dir，默认指向项目下 datasets/)
+path: datasets/UAVDT  # dataset root dir (Linux 区分大小写)
 train: images/train   # train images (relative to 'path')
 val: images/val       # val images (relative to 'path')  
 test: images/test     # test images (optional)

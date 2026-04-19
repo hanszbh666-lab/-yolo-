@@ -25,6 +25,36 @@ import torch
 from ultralytics import YOLO
 import yaml
 
+try:
+    from ultralytics.utils import checks as _ul_checks
+except Exception:
+    _ul_checks = None
+
+
+def _disable_amp_online_probe(verbose=True):
+    """禁用 Ultralytics AMP 在线探测，避免下载 yolo11n.pt。"""
+    patched_targets = []
+
+    try:
+        import ultralytics.utils.checks as checks_mod
+        checks_mod.check_amp = lambda *args, **kwargs: True
+        patched_targets.append('ultralytics.utils.checks.check_amp')
+    except Exception:
+        pass
+
+    try:
+        import ultralytics.engine.trainer as trainer_mod
+        trainer_mod.check_amp = lambda *args, **kwargs: True
+        patched_targets.append('ultralytics.engine.trainer.check_amp')
+    except Exception:
+        pass
+
+    if verbose:
+        if patched_targets:
+            print(f"🧪 AMP探测: 已禁用在线检查 -> {', '.join(patched_targets)}")
+        else:
+            print("⚠️  AMP探测禁用失败：未找到可替换的 check_amp，可能仍会触发下载")
+
 from scripts.size_metrics import (
     DEFAULT_MEDIUM_AREA,
     DEFAULT_SMALL_AREA,
@@ -120,8 +150,6 @@ def _launch_manual_ddp(args):
         cmd.extend(['--cache', args.cache])
     if args.resume:
         cmd.append('--resume')
-    if args.pretrained:
-        cmd.append('--pretrained')
 
     env = os.environ.copy()
     env['PYTHONPATH'] = f"{_PROJECT_ROOT}{os.pathsep}{env['PYTHONPATH']}" if env.get('PYTHONPATH') else _PROJECT_ROOT
@@ -276,7 +304,7 @@ def train_yolo11(
     project='runs/train',
     name=None,
     resume=False,
-    use_pretrained=False,
+    amp=True,
     small_area=DEFAULT_SMALL_AREA,
     medium_area=DEFAULT_MEDIUM_AREA,
     **kwargs
@@ -295,7 +323,6 @@ def train_yolo11(
         project: 项目保存目录
         name: 实验名称
         resume: 是否从上次中断的地方继续训练
-        use_pretrained: 是否使用预训练权重（默认False，从头训练）
         **kwargs: 其他训练参数
     """
     # 自动生成实验名称（如果没有提供）
@@ -317,6 +344,7 @@ def train_yolo11(
     print(f"📦 批次大小: {batch_size}")
     print(f"🖼️  图像尺寸: {imgsz}")
     print(f"🔧 设备: {'GPU ' + device if device != 'cpu' else 'CPU'}")
+    print(f"⚡ 混合精度: {'开启' if amp else '关闭'}")
     print(f"👷 工作线程: {workers}")
     print(f"💾 保存路径: {project}/{name}")
     print(f"📏 尺寸阈值: small < {small_area:.0f}, medium < {medium_area:.0f}, large >= {medium_area:.0f}")
@@ -328,10 +356,21 @@ def train_yolo11(
             print("⚠️  警告: CUDA不可用，切换到CPU训练")
             device = 'cpu'
         else:
-            gpu_name = torch.cuda.get_device_name(0)
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            try:
+                gpu_index = int(str(device).split(',')[0])
+            except Exception:
+                gpu_index = 0
+            if not _is_multi_gpu_request(device):
+                try:
+                    torch.cuda.set_device(gpu_index)
+                except Exception as e:
+                    print(f"⚠️  设备绑定失败，回退到默认设备。原因: {e}")
+            gpu_name = torch.cuda.get_device_name(gpu_index)
+            gpu_memory = torch.cuda.get_device_properties(gpu_index).total_memory / 1024**3
             print(f"✅ 检测到GPU: {gpu_name}")
             print(f"💾 显存大小: {gpu_memory:.2f} GB\n")
+            if not _is_multi_gpu_request(device):
+                print(f"🎯 当前CUDA默认设备: cuda:{torch.cuda.current_device()}\n")
     
     # 加载模型
     print(f"🔄 加载模型: {model}")
@@ -348,9 +387,17 @@ def train_yolo11(
     if model.endswith('.pt'):
         # 使用预训练权重
         yolo_model = YOLO(model)
+        # 清理 checkpoint 中历史任务遗留参数（如 detect 的 project/name/source 等），
+        # 避免污染当前 train 配置。
+        if isinstance(getattr(yolo_model, 'overrides', None), dict):
+            task_value = yolo_model.overrides.get('task', 'detect')
+            yolo_model.overrides = {
+                'model': str(model_path),
+                'task': task_value,
+            }
         print(f"✅ 已加载预训练权重: {model}")
+        print(f"📌 权重绝对路径: {model_path.resolve()}")
         print(f"📦 模型类型: 预训练模型\n")
-        use_pretrained = True  # .pt文件强制使用预训练权重
     elif model.endswith('.yaml'):
         # 使用自定义配置（完全离线模式）
         # 设置离线模式，防止任何自动下载
@@ -358,13 +405,8 @@ def train_yolo11(
         ultralytics.checks.check_pip_update_available = lambda: False  # 禁用pip更新检查
         yolo_model = YOLO(model, task='detect')
         print(f"✅ 已加载模型配置: {model}")
-        if use_pretrained:
-            print(f"📦 模型类型: 使用预训练权重初始化")
-            print(f"💡 提示: 将自动下载对应的预训练权重进行初始化")
-        else:
-            print(f"📦 模型类型: 从头训练（随机初始化权重）")
-            print(f"⚠️  注意: 不使用预训练权重，训练时间会更长")
-            print(f"💡 提示: 如需使用预训练权重加速训练，请添加 --pretrained 参数")
+        print(f"📦 模型类型: 从头训练（随机初始化权重）")
+        print(f"⚠️  注意: 已禁用自动获取预训练权重")
         print()
     else:
         raise ValueError(f"不支持的模型格式: {model}（仅支持 .pt 或 .yaml）")
@@ -372,6 +414,11 @@ def train_yolo11(
     # 开始训练
     print("🎯 开始训练...\n")
     print("="*80)
+
+    # Ultralytics 在 AMP 检查时会下载 yolo11n.pt 进行探测。
+    # 为保证离线和可复现训练，这里直接跳过该探测并保持 AMP 可用。
+    if amp and _ul_checks is not None:
+        _disable_amp_online_probe(verbose=True)
     
     try:
         results = yolo_model.train(
@@ -412,15 +459,15 @@ def train_yolo11(
             save_period=-1,      # 每N轮保存一次 (-1为仅保存最后和最佳)
             cache=False,         # 数据集缓存到内存 (True/False/'ram'/'disk')
             exist_ok=True,       # 覆盖已存在的项目
-            pretrained=use_pretrained,  # 根据用户选择决定是否使用预训练权重
+            pretrained=False,   # 禁用自动获取预训练权重
             verbose=True,        # 详细输出
             
             # 验证配置
             val=True,            # 训练时验证
             plots=True,          # 保存训练图表
             
-            # 混合精度训练 (RTX4060支持) - 禁用自动检查避免下载
-            amp=False,           # 禁用自动混合精度训练以避免下载
+            # 混合精度训练，可显著降低显存占用
+            amp=amp,
             
             # 其他参数
             **kwargs
@@ -490,6 +537,7 @@ def train_yolo11(
 def main():
     """主函数 - 解析命令行参数并开始训练"""
     import argparse
+    print(f"📄 当前执行脚本: {Path(__file__).resolve()}")
     
     parser = argparse.ArgumentParser(description='YOLOv11改进实验训练脚本 - VisDrone小目标检测')
     
@@ -516,8 +564,11 @@ def main():
                         help='实验名称 (如不指定则自动生成: {数据集名称}_{模型名称})')
     parser.add_argument('--resume', action='store_true',
                         help='从上次中断处继续训练')
-    parser.add_argument('--pretrained', action='store_true',
-                        help='使用预训练权重（适用于.yaml配置文件）')
+    parser.add_argument('--amp', dest='amp', action='store_true',
+                        help='启用混合精度训练（默认开启，显著降低显存占用）')
+    parser.add_argument('--no-amp', dest='amp', action='store_false',
+                        help='禁用混合精度训练')
+    parser.set_defaults(amp=True)
     
     # 高级参数
     parser.add_argument('--cache', type=str, default=None,
@@ -571,7 +622,7 @@ def main():
         project=args.project,
         name=args.name,
         resume=args.resume,
-        use_pretrained=args.pretrained,
+        amp=args.amp,
         small_area=args.small_area,
         medium_area=args.medium_area,
         **extra_args

@@ -168,9 +168,27 @@ def validate_model(
         if hasattr(results, 'box') and hasattr(metrics, 'maps'):
             print("\n📋 各类别 mAP@0.5:")
             print("-" * 80)
-            class_names = ['pedestrian', 'people', 'bicycle', 'car', 'van', 
-                          'truck', 'tricycle', 'awning-tricycle', 'bus', 'motor']
-            for class_name, map_val in zip(class_names, metrics.maps):
+            class_names = None
+            # 优先使用验证结果返回的类别名，其次回退到模型内的类别名
+            if hasattr(results, 'names') and results.names:
+                class_names = results.names
+            elif hasattr(model, 'names') and model.names:
+                class_names = model.names
+
+            # 统一为按类别ID排序后的名称列表
+            if isinstance(class_names, dict):
+                class_name_list = [class_names[k] for k in sorted(class_names.keys())]
+            elif isinstance(class_names, (list, tuple)):
+                class_name_list = list(class_names)
+            else:
+                class_name_list = []
+
+            # 与 metrics.maps 对齐，避免长度不一致导致显示错误
+            for idx, map_val in enumerate(metrics.maps):
+                if idx < len(class_name_list):
+                    class_name = str(class_name_list[idx])
+                else:
+                    class_name = f"class_{idx}"
                 print(f"  {class_name:20s}: {map_val:.4f}")
         
         print("="*80)
